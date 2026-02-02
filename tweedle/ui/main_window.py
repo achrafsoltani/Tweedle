@@ -45,6 +45,10 @@ class MainWindow(QMainWindow):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+
+        # Set object name for WM_CLASS on X11 (must match .desktop StartupWMClass)
+        self.setObjectName("tweedle")
+
         self.setWindowTitle("Tweedle")
         self.resize(
             config_manager.config.window_width,
