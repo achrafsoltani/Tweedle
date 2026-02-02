@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Tweedle
+GenericName=Email Client
+Comment=A modern email client for Linux
+Exec=tweedle %u
+Icon=tweedle
+Terminal=false
+Type=Application
+Categories=Network;Email;Office;
+Keywords=email;mail;imap;smtp;client;
+MimeType=x-scheme-handler/mailto;
+StartupNotify=true
+StartupWMClass=Tweedle
