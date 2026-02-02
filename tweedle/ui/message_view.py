@@ -136,22 +136,49 @@ class MessageView(QWidget):
         layout.addWidget(self.web_view, 1)  # Stretch to fill space
 
         # Reply buttons at the bottom
-        toolbar = QToolBar()
-        toolbar.setMovable(False)
+        button_bar = QFrame()
+        button_bar.setStyleSheet("""
+            QFrame {
+                background-color: #f5f5f5;
+                border-top: 1px solid #ddd;
+                padding: 8px;
+            }
+            QPushButton {
+                background-color: #4a90d9;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: bold;
+                min-width: 80px;
+            }
+            QPushButton:hover {
+                background-color: #357abd;
+            }
+            QPushButton:pressed {
+                background-color: #2a5f8f;
+            }
+        """)
 
-        reply_action = QAction("Reply", self)
-        reply_action.triggered.connect(self.reply_requested.emit)
-        toolbar.addAction(reply_action)
+        button_layout = QHBoxLayout(button_bar)
+        button_layout.setContentsMargins(10, 8, 10, 8)
+        button_layout.setSpacing(10)
 
-        reply_all_action = QAction("Reply All", self)
-        reply_all_action.triggered.connect(self.reply_all_requested.emit)
-        toolbar.addAction(reply_all_action)
+        reply_btn = QPushButton("↩ Reply")
+        reply_btn.clicked.connect(self.reply_requested.emit)
+        button_layout.addWidget(reply_btn)
 
-        forward_action = QAction("Forward", self)
-        forward_action.triggered.connect(self.forward_requested.emit)
-        toolbar.addAction(forward_action)
+        reply_all_btn = QPushButton("↩ Reply All")
+        reply_all_btn.clicked.connect(self.reply_all_requested.emit)
+        button_layout.addWidget(reply_all_btn)
 
-        layout.addWidget(toolbar)
+        forward_btn = QPushButton("→ Forward")
+        forward_btn.clicked.connect(self.forward_requested.emit)
+        button_layout.addWidget(forward_btn)
+
+        button_layout.addStretch()  # Push buttons to the left
+
+        layout.addWidget(button_bar)
 
         self._show_empty_state()
 
