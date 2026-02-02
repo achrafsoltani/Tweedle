@@ -128,6 +128,14 @@ class MainWindow(QMainWindow):
         add_account_action.triggered.connect(self._on_add_account)
         file_menu.addAction(add_account_action)
 
+        edit_account_action = QAction("&Edit Account...", self)
+        edit_account_action.triggered.connect(self._on_edit_account)
+        file_menu.addAction(edit_account_action)
+
+        remove_account_action = QAction("&Remove Account...", self)
+        remove_account_action.triggered.connect(self._on_remove_account)
+        file_menu.addAction(remove_account_action)
+
         file_menu.addSeparator()
 
         quit_action = QAction("&Quit", self)
@@ -427,6 +435,60 @@ class MainWindow(QMainWindow):
                 if idx >= 0:
                     self.account_selector.setCurrentIndex(idx)
                 self._switch_account(account)
+
+    def _on_edit_account(self):
+        """Show edit account dialog for current account."""
+        if not self._current_account:
+            QMessageBox.warning(self, "No Account", "No account selected to edit.")
+            return
+
+        dialog = AccountDialog(self, account=self._current_account)
+        if dialog.exec():
+            account = dialog.get_account()
+            if account:
+                self._update_account_selector()
+                # Reconnect with updated settings
+                self._switch_account(account)
+
+    def _on_remove_account(self):
+        """Remove the current account."""
+        if not self._current_account:
+            QMessageBox.warning(self, "No Account", "No account selected to remove.")
+            return
+
+        result = QMessageBox.question(
+            self,
+            "Remove Account",
+            f"Are you sure you want to remove the account '{self._current_account.name}'?\n\nThis will delete the account settings and stored password.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+
+        if result == QMessageBox.Yes:
+            account_id = self._current_account.id
+
+            # Disconnect if connected
+            if self._imap_client:
+                try:
+                    self._imap_client.disconnect()
+                except Exception:
+                    pass
+                self._imap_client = None
+
+            # Remove account
+            account_manager.delete_account(account_id)
+            self._current_account = None
+
+            # Update UI
+            self._update_account_selector()
+            self.folder_tree.clear()
+            self.message_list.clear()
+            self.message_view.clear()
+
+            # Switch to another account if available
+            if account_manager.accounts:
+                self._switch_account(account_manager.accounts[0])
+            else:
+                self._set_status("No accounts configured")
 
     def _on_compose(self):
         """Open compose window for new message."""
