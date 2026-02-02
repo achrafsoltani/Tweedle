@@ -60,8 +60,10 @@ jobs:
         run: |
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+            echo "IS_RELEASE=true" >> $GITHUB_OUTPUT
           else
-            echo "VERSION=dev-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+            echo "VERSION=0.0.0+dev.$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+            echo "IS_RELEASE=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Build with PyInstaller
@@ -177,7 +179,7 @@ jobs:
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
           else
-            echo "VERSION=dev-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+            echo "VERSION=0.0.0+dev.$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           fi
 
       - name: Create ICO from PNG
