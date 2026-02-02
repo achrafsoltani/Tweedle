@@ -123,6 +123,19 @@ class MessageView(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
+        self.header_widget = MessageHeader()
+        layout.addWidget(self.header_widget)
+
+        self.attachment_bar = AttachmentBar()
+        self.attachment_bar.setVisible(False)
+        layout.addWidget(self.attachment_bar)
+
+        self.web_view = QWebEngineView()
+        self.web_view.setPage(ExternalLinkPage(self.web_view))
+        self.web_view.setContextMenuPolicy(Qt.NoContextMenu)
+        layout.addWidget(self.web_view, 1)  # Stretch to fill space
+
+        # Reply buttons at the bottom
         toolbar = QToolBar()
         toolbar.setMovable(False)
 
@@ -139,18 +152,6 @@ class MessageView(QWidget):
         toolbar.addAction(forward_action)
 
         layout.addWidget(toolbar)
-
-        self.header_widget = MessageHeader()
-        layout.addWidget(self.header_widget)
-
-        self.attachment_bar = AttachmentBar()
-        self.attachment_bar.setVisible(False)
-        layout.addWidget(self.attachment_bar)
-
-        self.web_view = QWebEngineView()
-        self.web_view.setPage(ExternalLinkPage(self.web_view))
-        self.web_view.setContextMenuPolicy(Qt.NoContextMenu)
-        layout.addWidget(self.web_view)
 
         self._show_empty_state()
 
