@@ -10,4 +10,4 @@ Categories=Network;Email;Office;
 Keywords=email;mail;imap;smtp;client;
 MimeType=x-scheme-handler/mailto;
 StartupNotify=true
-StartupWMClass=Tweedle
+StartupWMClass=tweedle

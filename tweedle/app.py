@@ -19,7 +19,7 @@ def get_icon_path() -> Path:
     system_paths = [
         Path("/usr/share/icons/hicolor/256x256/apps/tweedle.png"),
         Path("/usr/share/pixmaps/tweedle.png"),
-        Path.home() / ".local/share/icons/tweedle.png",
+        Path.home() / ".local/share/icons/hicolor/256x256/apps/tweedle.png",
     ]
     for path in system_paths:
         if path.exists():
@@ -30,26 +30,27 @@ def get_icon_path() -> Path:
 
 def run_app() -> int:
     """Initialize and run the application."""
-    # Set app ID for proper taskbar grouping on Linux
+    # Set WM_CLASS for proper taskbar icon on Linux (must be before QApplication)
     if sys.platform == "linux":
-        os.environ.setdefault("QT_QPA_PLATFORMTHEME", "gtk3")
-        # Set the desktop file name for proper icon display
-        try:
-            from PySide6.QtGui import QGuiApplication
-            QGuiApplication.setDesktopFileName("tweedle")
-        except Exception:
-            pass
+        # This sets the app ID for Wayland and WM_CLASS for X11
+        os.environ["RESOURCE_NAME"] = "tweedle"
 
     QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
 
     app = QApplication(sys.argv)
-    app.setApplicationName("Tweedle")
+
+    # Set application properties
+    app.setApplicationName("tweedle")  # Lowercase to match .desktop file
     app.setApplicationDisplayName("Tweedle")
     app.setOrganizationName("Tweedle")
     app.setOrganizationDomain("tweedle.local")
 
+    # Set desktop file name for Linux (must match .desktop filename without extension)
+    app.setDesktopFileName("tweedle")
+
     # Set application icon
     icon_path = get_icon_path()
+    app_icon = None
     if icon_path:
         app_icon = QIcon(str(icon_path))
         app.setWindowIcon(app_icon)
@@ -62,8 +63,8 @@ def run_app() -> int:
     window = MainWindow()
 
     # Set window icon explicitly
-    if icon_path:
-        window.setWindowIcon(QIcon(str(icon_path)))
+    if app_icon:
+        window.setWindowIcon(app_icon)
 
     window.show()
 
