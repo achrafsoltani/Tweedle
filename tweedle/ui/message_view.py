@@ -136,47 +136,24 @@ class MessageView(QWidget):
         layout.addWidget(self.web_view, 1)  # Stretch to fill space
 
         # Reply buttons at the bottom
-        button_bar = QFrame()
-        button_bar.setStyleSheet("""
-            QFrame {
-                background-color: #f5f5f5;
-                border-top: 1px solid #ddd;
-                padding: 8px;
-            }
-            QPushButton {
-                background-color: #4a90d9;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                font-weight: bold;
-                min-width: 80px;
-            }
-            QPushButton:hover {
-                background-color: #357abd;
-            }
-            QPushButton:pressed {
-                background-color: #2a5f8f;
-            }
-        """)
-
+        button_bar = QWidget()
         button_layout = QHBoxLayout(button_bar)
-        button_layout.setContentsMargins(10, 8, 10, 8)
-        button_layout.setSpacing(10)
+        button_layout.setContentsMargins(5, 5, 5, 5)
+        button_layout.setSpacing(5)
 
-        reply_btn = QPushButton("↩ Reply")
+        button_layout.addStretch()  # Push buttons to the right
+
+        reply_btn = QPushButton("Reply")
         reply_btn.clicked.connect(self.reply_requested.emit)
         button_layout.addWidget(reply_btn)
 
-        reply_all_btn = QPushButton("↩ Reply All")
+        reply_all_btn = QPushButton("Reply All")
         reply_all_btn.clicked.connect(self.reply_all_requested.emit)
         button_layout.addWidget(reply_all_btn)
 
-        forward_btn = QPushButton("→ Forward")
+        forward_btn = QPushButton("Forward")
         forward_btn.clicked.connect(self.forward_requested.emit)
         button_layout.addWidget(forward_btn)
-
-        button_layout.addStretch()  # Push buttons to the left
 
         layout.addWidget(button_bar)
 
