@@ -109,7 +109,7 @@ class MainWindow(QMainWindow):
             config_manager.config.window_width - config_manager.config.sidebar_width,
         ])
 
-        layout.addWidget(main_splitter)
+        layout.addWidget(main_splitter, 1)  # Stretch factor 1 to fill available space
 
     def _setup_menu(self):
         """Set up the menu bar."""

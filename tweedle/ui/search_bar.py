@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
 )
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -19,6 +20,8 @@ class SearchBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._setup_ui()
+        # Fixed height - don't stretch vertically
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
     def _setup_ui(self):
         """Set up the UI."""
