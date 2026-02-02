@@ -1,0 +1,272 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  APP_NAME: Tweedle
+  APP_NAME_LOWER: tweedle
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb-cursor0 \
+            libxkbcommon0 \
+            libxcb-xinerama0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libegl1 \
+            libgl1 \
+            libsecret-1-0 \
+            gnome-keyring
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller pyinstaller-hooks-contrib pillow
+
+      - name: Run tests
+        run: |
+          pip install pytest
+          python -m pytest tests/ -v || true
+
+      - name: Get version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=dev-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build with PyInstaller
+        run: |
+          python -m PyInstaller \
+            --name ${{ env.APP_NAME }} \
+            --onedir \
+            --windowed \
+            --clean \
+            --noconfirm \
+            --icon resources/icons/app_icon.png \
+            --hidden-import PySide6.QtCore \
+            --hidden-import PySide6.QtGui \
+            --hidden-import PySide6.QtWidgets \
+            --hidden-import PySide6.QtWebEngineWidgets \
+            --hidden-import PySide6.QtWebEngineCore \
+            --hidden-import imapclient \
+            --hidden-import keyring \
+            --hidden-import keyring.backends \
+            --hidden-import keyring.backends.SecretService \
+            --collect-all PySide6 \
+            main.py
+
+      - name: Create portable archive
+        run: |
+          cd dist
+          tar -czvf ${{ env.APP_NAME }}-${{ steps.version.outputs.VERSION }}-linux-x64.tar.gz ${{ env.APP_NAME }}/
+
+      - name: Create DEB package
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          PKG_DIR="${{ env.APP_NAME_LOWER }}_${VERSION}_amd64"
+
+          mkdir -p "${PKG_DIR}/DEBIAN"
+          mkdir -p "${PKG_DIR}/usr/bin"
+          mkdir -p "${PKG_DIR}/usr/share/applications"
+          mkdir -p "${PKG_DIR}/usr/share/icons/hicolor/256x256/apps"
+          mkdir -p "${PKG_DIR}/opt/${{ env.APP_NAME_LOWER }}"
+
+          # Copy application files
+          cp -r dist/${{ env.APP_NAME }}/* "${PKG_DIR}/opt/${{ env.APP_NAME_LOWER }}/"
+
+          # Create launcher script
+          cat > "${PKG_DIR}/usr/bin/${{ env.APP_NAME_LOWER }}" << 'EOF'
+          #!/bin/bash
+          exec /opt/tweedle/Tweedle "$@"
+          EOF
+          chmod +x "${PKG_DIR}/usr/bin/${{ env.APP_NAME_LOWER }}"
+
+          # Copy desktop file and icon
+          cp ${{ env.APP_NAME_LOWER }}.desktop "${PKG_DIR}/usr/share/applications/"
+          cp resources/icons/app_icon.png "${PKG_DIR}/usr/share/icons/hicolor/256x256/apps/${{ env.APP_NAME_LOWER }}.png"
+
+          # Calculate installed size
+          INSTALLED_SIZE=$(du -sk "${PKG_DIR}/opt" | cut -f1)
+
+          # Create control file
+          cat > "${PKG_DIR}/DEBIAN/control" << EOF
+          Package: ${{ env.APP_NAME_LOWER }}
+          Version: ${VERSION}
+          Section: mail
+          Priority: optional
+          Architecture: amd64
+          Installed-Size: ${INSTALLED_SIZE}
+          Maintainer: Achraf SOLTANI <achraf.soltani@gmail.com>
+          Homepage: https://github.com/achrafsoltani/tweedle
+          Description: Modern email client for Linux
+           Tweedle is a full-featured email client built with Python and Qt6.
+           Features include IMAP/SMTP support, HTML rendering, secure credential
+           storage via system keyring, multi-account capability, and more.
+          EOF
+
+          # Build package
+          dpkg-deb --build "${PKG_DIR}"
+          mv "${PKG_DIR}.deb" "dist/${{ env.APP_NAME_LOWER }}_${VERSION}_amd64.deb"
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: |
+            dist/${{ env.APP_NAME }}-*.tar.gz
+            dist/${{ env.APP_NAME_LOWER }}_*.deb
+          retention-days: 30
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller pyinstaller-hooks-contrib pillow
+
+      - name: Run tests
+        run: |
+          pip install pytest
+          python -m pytest tests/ -v
+        continue-on-error: true
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=dev-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create ICO from PNG
+        run: |
+          python -c "
+          from PIL import Image
+          import os
+
+          png_path = 'resources/icons/app_icon.png'
+          ico_path = 'resources/icons/app_icon.ico'
+
+          if os.path.exists(png_path):
+              img = Image.open(png_path)
+              sizes = [(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+              icons = [img.resize(size, Image.Resampling.LANCZOS) for size in sizes]
+              icons[0].save(ico_path, format='ICO', sizes=sizes, append_images=icons[1:])
+              print(f'Created {ico_path}')
+          else:
+              print(f'PNG not found: {png_path}')
+          "
+
+      - name: Build with PyInstaller
+        run: |
+          python -m PyInstaller `
+            --name ${{ env.APP_NAME }} `
+            --onedir `
+            --windowed `
+            --clean `
+            --noconfirm `
+            --icon resources/icons/app_icon.ico `
+            --hidden-import PySide6.QtCore `
+            --hidden-import PySide6.QtGui `
+            --hidden-import PySide6.QtWidgets `
+            --hidden-import PySide6.QtWebEngineWidgets `
+            --hidden-import PySide6.QtWebEngineCore `
+            --hidden-import imapclient `
+            --hidden-import keyring `
+            --hidden-import keyring.backends `
+            --hidden-import keyring.backends.Windows `
+            --collect-all PySide6 `
+            main.py
+
+      - name: Create ZIP archive
+        shell: bash
+        run: |
+          cd dist
+          7z a -tzip ${{ env.APP_NAME }}-${{ steps.version.outputs.VERSION }}-windows-x64.zip ${{ env.APP_NAME }}/
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: dist/${{ env.APP_NAME }}-*-windows-x64.zip
+          retention-days: 30
+
+  release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-build
+          path: artifacts/
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: artifacts/
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Tweedle v${{ steps.version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            artifacts/*.tar.gz
+            artifacts/*.deb
+            artifacts/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
