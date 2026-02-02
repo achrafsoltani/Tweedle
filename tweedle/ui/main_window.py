@@ -426,6 +426,7 @@ class MainWindow(QMainWindow):
                 idx = self.account_selector.findData(account.id)
                 if idx >= 0:
                     self.account_selector.setCurrentIndex(idx)
+                self._switch_account(account)
 
     def _on_compose(self):
         """Open compose window for new message."""
