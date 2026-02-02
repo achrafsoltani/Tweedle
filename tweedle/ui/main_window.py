@@ -14,9 +14,12 @@ from PySide6.QtWidgets import (
     QComboBox,
     QMenu,
     QMenuBar,
+    QProgressBar,
+    QSystemTrayIcon,
+    QApplication,
 )
-from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import Qt, QSize, QTimer
+from PySide6.QtGui import QAction, QKeySequence, QIcon
 
 from tweedle.core.account import Account, account_manager
 from tweedle.core.imap_client import IMAPClientWrapper
@@ -52,11 +55,15 @@ class MainWindow(QMainWindow):
         self._imap_client: Optional[IMAPClientWrapper] = None
         self._current_folder: Optional[str] = None
         self._workers = []
+        self._loading_count = 0
+        self._last_unread_count = 0
 
         self._setup_ui()
         self._setup_menu()
         self._setup_toolbar()
         self._setup_statusbar()
+        self._setup_tray()
+        self._setup_auto_refresh()
         self._setup_shortcuts()
 
         account_manager.load_accounts()
@@ -109,12 +116,13 @@ class MainWindow(QMainWindow):
             config_manager.config.window_width - config_manager.config.sidebar_width,
         ])
 
-        layout.addWidget(main_splitter, 1)  # Stretch factor 1 to fill available space
+        layout.addWidget(main_splitter, 1)
 
     def _setup_menu(self):
         """Set up the menu bar."""
         menubar = self.menuBar()
 
+        # File menu
         file_menu = menubar.addMenu("&File")
 
         new_action = QAction("&New Message", self)
@@ -140,9 +148,10 @@ class MainWindow(QMainWindow):
 
         quit_action = QAction("&Quit", self)
         quit_action.setShortcut(QKeySequence.Quit)
-        quit_action.triggered.connect(self.close)
+        quit_action.triggered.connect(self._quit_app)
         file_menu.addAction(quit_action)
 
+        # Edit menu
         edit_menu = menubar.addMenu("&Edit")
 
         self.mark_read_action = QAction("Mark as &Read", self)
@@ -157,11 +166,26 @@ class MainWindow(QMainWindow):
 
         edit_menu.addSeparator()
 
+        mark_all_read_action = QAction("Mark &All as Read", self)
+        mark_all_read_action.setShortcut("Ctrl+Shift+A")
+        mark_all_read_action.triggered.connect(self._on_mark_all_read)
+        edit_menu.addAction(mark_all_read_action)
+
+        edit_menu.addSeparator()
+
         self.delete_action = QAction("&Delete", self)
         self.delete_action.setShortcut(QKeySequence.Delete)
         self.delete_action.triggered.connect(self._on_delete)
         edit_menu.addAction(self.delete_action)
 
+        # Folder menu
+        folder_menu = menubar.addMenu("F&older")
+
+        empty_trash_action = QAction("&Empty Trash", self)
+        empty_trash_action.triggered.connect(self._on_empty_trash)
+        folder_menu.addAction(empty_trash_action)
+
+        # View menu
         view_menu = menubar.addMenu("&View")
 
         refresh_action = QAction("&Refresh", self)
@@ -169,6 +193,7 @@ class MainWindow(QMainWindow):
         refresh_action.triggered.connect(self._on_refresh)
         view_menu.addAction(refresh_action)
 
+        # Message menu
         message_menu = menubar.addMenu("&Message")
 
         reply_action = QAction("&Reply", self)
@@ -228,12 +253,76 @@ class MainWindow(QMainWindow):
         """Set up the status bar."""
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
+
         self.status_label = QLabel("Ready")
-        self.status_bar.addWidget(self.status_label)
+        self.status_bar.addWidget(self.status_label, 1)
+
+        # Loading indicator
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMaximumWidth(150)
+        self.progress_bar.setMaximum(0)  # Indeterminate
+        self.progress_bar.setVisible(False)
+        self.status_bar.addPermanentWidget(self.progress_bar)
+
+    def _setup_tray(self):
+        """Set up system tray icon."""
+        self.tray_icon = QSystemTrayIcon(self)
+
+        # Try to load app icon
+        try:
+            from pathlib import Path
+            icon_path = Path(__file__).parent.parent.parent / "resources" / "icons" / "app_icon.png"
+            if icon_path.exists():
+                self.tray_icon.setIcon(QIcon(str(icon_path)))
+            else:
+                self.tray_icon.setIcon(self.style().standardIcon(self.style().StandardPixmap.SP_ComputerIcon))
+        except Exception:
+            self.tray_icon.setIcon(self.style().standardIcon(self.style().StandardPixmap.SP_ComputerIcon))
+
+        # Tray menu
+        tray_menu = QMenu()
+
+        show_action = QAction("Show", self)
+        show_action.triggered.connect(self.show)
+        tray_menu.addAction(show_action)
+
+        compose_action = QAction("New Message", self)
+        compose_action.triggered.connect(self._on_compose)
+        tray_menu.addAction(compose_action)
+
+        tray_menu.addSeparator()
+
+        quit_action = QAction("Quit", self)
+        quit_action.triggered.connect(self._quit_app)
+        tray_menu.addAction(quit_action)
+
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.activated.connect(self._on_tray_activated)
+        self.tray_icon.setToolTip("Tweedle")
+        self.tray_icon.show()
+
+    def _setup_auto_refresh(self):
+        """Set up auto-refresh timer."""
+        self.refresh_timer = QTimer(self)
+        self.refresh_timer.timeout.connect(self._on_auto_refresh)
+        # Refresh every 5 minutes (configurable)
+        interval_ms = config_manager.config.check_interval_minutes * 60 * 1000
+        self.refresh_timer.start(interval_ms)
 
     def _setup_shortcuts(self):
         """Set up additional keyboard shortcuts."""
         pass
+
+    def _start_loading(self):
+        """Show loading indicator."""
+        self._loading_count += 1
+        self.progress_bar.setVisible(True)
+
+    def _stop_loading(self):
+        """Hide loading indicator."""
+        self._loading_count = max(0, self._loading_count - 1)
+        if self._loading_count == 0:
+            self.progress_bar.setVisible(False)
 
     def _update_account_selector(self):
         """Update the account selector combo box."""
@@ -269,10 +358,12 @@ class MainWindow(QMainWindow):
             return
 
         self._set_status(f"Connecting to {self._current_account.config.imap_server}...")
+        self._start_loading()
 
         worker = ConnectWorker(self._current_account)
         worker.signals.result.connect(self._on_connected)
         worker.signals.error.connect(self._on_connection_error)
+        worker.signals.finished.connect(self._stop_loading)
         self._workers.append(worker)
         worker.start()
 
@@ -297,21 +388,50 @@ class MainWindow(QMainWindow):
             return
 
         self._set_status("Fetching folders...")
+        self._start_loading()
 
         worker = FetchFoldersWorker(self._imap_client)
         worker.signals.result.connect(self._on_folders_fetched)
         worker.signals.error.connect(lambda e: self._set_status(f"Error: {e}"))
+        worker.signals.finished.connect(self._stop_loading)
         self._workers.append(worker)
         worker.start()
 
     def _on_folders_fetched(self, folders):
         """Handle fetched folders."""
         self.folder_tree.load_folders(folders)
+
+        # Calculate total unread
+        total_unread = sum(unread for _, _, _, unread in folders)
+        self._update_unread_count(total_unread)
+
         self._set_status("Ready")
 
         inbox_index = self.folder_tree.find_folder("INBOX")
         if inbox_index and inbox_index.isValid():
             self.folder_tree.select_folder(inbox_index)
+
+    def _update_unread_count(self, count: int):
+        """Update unread count in tray and title."""
+        if count > 0:
+            self.setWindowTitle(f"Tweedle ({count})")
+            self.tray_icon.setToolTip(f"Tweedle - {count} unread")
+        else:
+            self.setWindowTitle("Tweedle")
+            self.tray_icon.setToolTip("Tweedle")
+
+        # Show notification for new mail
+        if count > self._last_unread_count and self._last_unread_count >= 0:
+            new_count = count - self._last_unread_count
+            if new_count > 0 and self.tray_icon.supportsMessages():
+                self.tray_icon.showMessage(
+                    "New Mail",
+                    f"You have {new_count} new message(s)",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    3000
+                )
+
+        self._last_unread_count = count
 
     def _on_folder_selected(self, folder_path: str):
         """Handle folder selection."""
@@ -326,10 +446,12 @@ class MainWindow(QMainWindow):
             return
 
         self._set_status(f"Fetching messages from {folder}...")
+        self._start_loading()
 
         worker = FetchMessagesWorker(self._imap_client, folder, limit, offset)
         worker.signals.result.connect(self._on_messages_fetched)
         worker.signals.error.connect(lambda e: self._set_status(f"Error: {e}"))
+        worker.signals.finished.connect(self._stop_loading)
         self._workers.append(worker)
         worker.start()
 
@@ -344,10 +466,12 @@ class MainWindow(QMainWindow):
             return
 
         self._set_status("Loading message...")
+        self._start_loading()
 
         worker = FetchMessageWorker(self._imap_client, self._current_folder, uid)
         worker.signals.result.connect(self._on_message_fetched)
         worker.signals.error.connect(lambda e: self._set_status(f"Error: {e}"))
+        worker.signals.finished.connect(self._stop_loading)
         self._workers.append(worker)
         worker.start()
 
@@ -384,6 +508,8 @@ class MainWindow(QMainWindow):
         if not self._imap_client or not self._current_folder:
             return
 
+        self._start_loading()
+
         worker = DeleteMessagesWorker(
             self._imap_client,
             self._current_folder,
@@ -391,6 +517,7 @@ class MainWindow(QMainWindow):
         )
         worker.signals.result.connect(lambda: self.message_list.remove_messages(uids))
         worker.signals.error.connect(lambda e: self._set_status(f"Error: {e}"))
+        worker.signals.finished.connect(self._stop_loading)
         self._workers.append(worker)
         worker.start()
 
@@ -402,10 +529,12 @@ class MainWindow(QMainWindow):
         from tweedle.core.workers import SearchWorker
 
         self._set_status(f"Searching for '{query}'...")
+        self._start_loading()
 
         worker = SearchWorker(self._imap_client, self._current_folder, query)
         worker.signals.result.connect(self._on_messages_fetched)
         worker.signals.error.connect(lambda e: self._set_status(f"Search error: {e}"))
+        worker.signals.finished.connect(self._stop_loading)
         self._workers.append(worker)
         worker.start()
 
@@ -447,7 +576,6 @@ class MainWindow(QMainWindow):
             account = dialog.get_account()
             if account:
                 self._update_account_selector()
-                # Reconnect with updated settings
                 self._switch_account(account)
 
     def _on_remove_account(self):
@@ -466,7 +594,6 @@ class MainWindow(QMainWindow):
         if result == QMessageBox.Yes:
             account_id = self._current_account.id
 
-            # Disconnect if connected
             if self._imap_client:
                 try:
                     self._imap_client.disconnect()
@@ -474,17 +601,14 @@ class MainWindow(QMainWindow):
                     pass
                 self._imap_client = None
 
-            # Remove account
             account_manager.delete_account(account_id)
             self._current_account = None
 
-            # Update UI
             self._update_account_selector()
             self.folder_tree.clear()
             self.message_list.clear()
             self.message_view.clear()
 
-            # Switch to another account if available
             if account_manager.accounts:
                 self._switch_account(account_manager.accounts[0])
             else:
@@ -560,6 +684,91 @@ class MainWindow(QMainWindow):
         self._workers.append(worker)
         worker.start()
 
+    def _on_mark_all_read(self):
+        """Mark all messages in current folder as read."""
+        if not self._imap_client or not self._current_folder:
+            return
+
+        # Get all message UIDs
+        uids = [msg.uid for msg in self.message_list._model.messages]
+        if not uids:
+            return
+
+        result = QMessageBox.question(
+            self,
+            "Mark All as Read",
+            f"Mark all {len(uids)} messages in this folder as read?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+
+        if result == QMessageBox.Yes:
+            self._start_loading()
+            worker = ModifyFlagsWorker(
+                self._imap_client,
+                self._current_folder,
+                uids,
+                "mark_read",
+            )
+            worker.signals.result.connect(
+                lambda: self.message_list.update_flags(uids, {"\\Seen"}, add=True)
+            )
+            worker.signals.finished.connect(self._stop_loading)
+            self._workers.append(worker)
+            worker.start()
+
+    def _on_empty_trash(self):
+        """Empty the trash folder."""
+        if not self._imap_client:
+            return
+
+        # Find trash folder
+        trash_names = ["Trash", "[Gmail]/Trash", "Deleted Items", "Deleted"]
+        trash_folder = None
+
+        folders = self.folder_tree._model._folder_items.keys()
+        for name in trash_names:
+            if name in folders:
+                trash_folder = name
+                break
+
+        if not trash_folder:
+            QMessageBox.warning(self, "No Trash", "Could not find trash folder.")
+            return
+
+        result = QMessageBox.question(
+            self,
+            "Empty Trash",
+            "Permanently delete all messages in Trash?\n\nThis cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+
+        if result == QMessageBox.Yes:
+            self._start_loading()
+            self._set_status("Emptying trash...")
+
+            try:
+                # Select trash and get all messages
+                self._imap_client.select_folder(trash_folder)
+                from imapclient import IMAPClient
+                messages = self._imap_client._client.search(["ALL"])
+
+                if messages:
+                    # Mark all as deleted and expunge
+                    self._imap_client._client.add_flags(messages, ["\\Deleted"])
+                    self._imap_client._client.expunge()
+
+                self._set_status("Trash emptied")
+
+                # Refresh if currently viewing trash
+                if self._current_folder == trash_folder:
+                    self._fetch_messages(trash_folder)
+
+            except Exception as e:
+                self._set_status(f"Error: {e}")
+                QMessageBox.critical(self, "Error", f"Failed to empty trash:\n{e}")
+            finally:
+                self._stop_loading()
+
     def _on_delete(self):
         """Delete selected messages."""
         uids = self.message_list.get_selected_uids()
@@ -573,12 +782,56 @@ class MainWindow(QMainWindow):
         elif self._imap_client:
             self._fetch_folders()
 
+    def _on_auto_refresh(self):
+        """Auto-refresh triggered by timer."""
+        if self._imap_client and self._current_folder:
+            # Silently refresh folders to update unread counts
+            worker = FetchFoldersWorker(self._imap_client)
+            worker.signals.result.connect(self._on_auto_refresh_folders)
+            self._workers.append(worker)
+            worker.start()
+
+    def _on_auto_refresh_folders(self, folders):
+        """Handle auto-refresh folder results."""
+        # Update folder tree with new counts
+        for name, delimiter, total, unread in folders:
+            self.folder_tree.update_folder_counts(name, total, unread)
+
+        # Update total unread count
+        total_unread = sum(unread for _, _, _, unread in folders)
+        self._update_unread_count(total_unread)
+
+    def _on_tray_activated(self, reason):
+        """Handle tray icon activation."""
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            if self.isVisible():
+                self.hide()
+            else:
+                self.show()
+                self.activateWindow()
+
     def _set_status(self, message: str):
         """Update status bar message."""
         self.status_label.setText(message)
 
+    def _quit_app(self):
+        """Quit the application completely."""
+        self.tray_icon.hide()
+        QApplication.quit()
+
     def closeEvent(self, event):
-        """Handle window close."""
+        """Handle window close - minimize to tray instead."""
+        if self.tray_icon.isVisible():
+            self.hide()
+            event.ignore()
+        else:
+            self._cleanup_and_close()
+            event.accept()
+
+    def _cleanup_and_close(self):
+        """Clean up resources before closing."""
+        self.refresh_timer.stop()
+
         for worker in self._workers:
             if worker.isRunning():
                 worker.cancel()
@@ -594,5 +847,3 @@ class MainWindow(QMainWindow):
         config.window_width = self.width()
         config.window_height = self.height()
         config_manager.save()
-
-        event.accept()
