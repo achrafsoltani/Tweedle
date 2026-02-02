@@ -268,15 +268,13 @@ class MainWindow(QMainWindow):
         """Set up system tray icon."""
         self.tray_icon = QSystemTrayIcon(self)
 
-        # Try to load app icon
-        try:
-            from pathlib import Path
-            icon_path = Path(__file__).parent.parent.parent / "resources" / "icons" / "app_icon.png"
-            if icon_path.exists():
-                self.tray_icon.setIcon(QIcon(str(icon_path)))
-            else:
-                self.tray_icon.setIcon(self.style().standardIcon(self.style().StandardPixmap.SP_ComputerIcon))
-        except Exception:
+        # Use the application's window icon (set in app.py)
+        app_icon = QApplication.instance().windowIcon()
+        if not app_icon.isNull():
+            self.tray_icon.setIcon(app_icon)
+            self.setWindowIcon(app_icon)
+        else:
+            # Fallback to standard icon
             self.tray_icon.setIcon(self.style().standardIcon(self.style().StandardPixmap.SP_ComputerIcon))
 
         # Tray menu
