@@ -30,22 +30,21 @@ def get_icon_path() -> Path:
 
 def run_app() -> int:
     """Initialize and run the application."""
-    # Set WM_CLASS for proper taskbar icon on Linux (must be before QApplication)
-    if sys.platform == "linux":
-        # This sets the app ID for Wayland and WM_CLASS for X11
-        os.environ["RESOURCE_NAME"] = "tweedle"
+    # Set app ID for Wayland (must be set before QApplication)
+    os.environ["QT_WAYLAND_APPLICATION_ID"] = "tweedle"
+
+    # Set WM_CLASS for X11
+    os.environ["RESOURCE_NAME"] = "tweedle"
 
     QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
 
     app = QApplication(sys.argv)
 
     # Set application properties
-    app.setApplicationName("tweedle")  # Lowercase to match .desktop file
+    app.setApplicationName("tweedle")
     app.setApplicationDisplayName("Tweedle")
     app.setOrganizationName("Tweedle")
     app.setOrganizationDomain("tweedle.local")
-
-    # Set desktop file name for Linux (must match .desktop filename without extension)
     app.setDesktopFileName("tweedle")
 
     # Set application icon
